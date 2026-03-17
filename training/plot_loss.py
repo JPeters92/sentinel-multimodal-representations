@@ -155,8 +155,8 @@ for ax in axes.flat:
 fig.tight_layout(rect=[0, 0, 1, 0.97])
 
 # Save
-out_png = "./loss_evolution/s1_s2_losses_grid.png"
-out_pdf = "./loss_evolution/s1_s2_losses_grid.pdf"
+out_png = "./plots/s1_s2_losses_grid.png"
+out_pdf = "./plots/s1_s2_losses_grid.pdf"
 fig.savefig(out_png, bbox_inches="tight")
 fig.savefig(out_pdf, bbox_inches="tight")
 print(f"Saved: {out_png}, {out_pdf}")
