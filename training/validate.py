@@ -1,111 +1,212 @@
-import os
 import re
+import sys
+from pathlib import Path
+
 import torch
-import pickle
-from tqdm import tqdm
-from model.model import TransformerAE
-from dataset.dataloader import HDF5Dataset
 from torch.utils.data import DataLoader
+from tqdm import tqdm
 
-def reverse_transformation(x, recon, log=False):
-    epsilon = 160
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
-    # Clip to [0, 1] just like during training
-    x = torch.clamp(x, 0, 1)
-    recon = torch.clamp(recon, 0, 1)
+from dataset.dataloader import HDF5Dataset
+from model.model_fusion import FusedS1S2, load_enc_dec_from_ae_ckpt
+from model.model_s1_s2 import TransformerAE
 
-    # Load min_max_dict
-    if log:
-        with open("./all_ranges_no_clouds_log.pkl", "rb") as f:
-            min_max_dict = pickle.load(f)
+torch.set_float32_matmul_precision("medium")
+
+MODE = "fusion"  # "s1", "s2", or "fusion"
+DEVICE_ID = 1
+BATCH_SIZE = 24
+NUM_WORKERS = 8
+
+MODALITY_CKPT_DIRS = {
+    "s1": ROOT / "checkpoints" / "modality" / "s1",
+    "s2": ROOT / "checkpoints" / "modality" / "s2",
+}
+FUSION_CKPT_CANDIDATES = [
+    ROOT / "checkpoints" / "fusion" / "s1_s2" / "fuse_model.ckpt",
+    ROOT / "checkpoints" / "fuse_model.ckpt",
+]
+CKPT_PATTERN = re.compile(r"val_loss=([0-9.]+e[+-]?\d+)")
+
+TEST_DATASETS = {
+    "s1": ROOT / "test_s1.h5",
+    "s2": ROOT / "test_s2.h5",
+    "fusion": ROOT / "test_s1_s2.h5",
+}
+
+
+def find_best_checkpoint(ckpt_dir: Path) -> Path:
+    candidates = sorted(ckpt_dir.glob("*.ckpt"))
+    if not candidates:
+        raise FileNotFoundError(f"No checkpoints found in {ckpt_dir}")
+
+    scored: list[tuple[float, Path]] = []
+    for path in candidates:
+        match = CKPT_PATTERN.search(path.name)
+        if match is not None:
+            scored.append((float(match.group(1)), path))
+
+    if scored:
+        return min(scored, key=lambda item: item[0])[1]
+    return max(candidates, key=lambda path: path.stat().st_mtime)
+
+
+def read_modality_checkpoint_config(ckpt_path: Path) -> dict[str, int]:
+    checkpoint = torch.load(ckpt_path, map_location="cpu")
+    hparams = checkpoint.get("hyper_parameters", {})
+    return {
+        "channels": int(hparams["channels"]),
+        "dbottleneck": int(hparams["dbottleneck"]),
+        "num_reduced_tokens": int(hparams["num_reduced_tokens"]),
+    }
+
+
+def resolve_fusion_checkpoint() -> Path:
+    for ckpt_path in FUSION_CKPT_CANDIDATES:
+        if ckpt_path.exists():
+            return ckpt_path
+    raise FileNotFoundError("No fusion checkpoint found in expected locations.")
+
+
+def load_modality_model(mode: str, device: torch.device) -> tuple[torch.nn.Module, Path]:
+    ckpt_path = find_best_checkpoint(MODALITY_CKPT_DIRS[mode])
+    cfg = read_modality_checkpoint_config(ckpt_path)
+    model = TransformerAE(
+        dbottleneck=cfg["dbottleneck"],
+        channels=cfg["channels"],
+        num_reduced_tokens=cfg["num_reduced_tokens"],
+    )
+    checkpoint = torch.load(ckpt_path, map_location=device)
+    model.load_state_dict(checkpoint["state_dict"])
+    model.to(device)
+    model.eval()
+    return model, ckpt_path
+
+
+def load_fusion_model(device: torch.device) -> tuple[torch.nn.Module, Path]:
+    s1_ckpt = find_best_checkpoint(MODALITY_CKPT_DIRS["s1"])
+    s2_ckpt = find_best_checkpoint(MODALITY_CKPT_DIRS["s2"])
+    s1_cfg = read_modality_checkpoint_config(s1_ckpt)
+    s2_cfg = read_modality_checkpoint_config(s2_ckpt)
+    fusion_ckpt = resolve_fusion_checkpoint()
+
+    enc_s1, dec_s1 = load_enc_dec_from_ae_ckpt(
+        device=device,
+        ckpt_path=str(s1_ckpt),
+        channels=s1_cfg["channels"],
+        dbottleneck=s1_cfg["dbottleneck"],
+        num_reduced_tokens=s1_cfg["num_reduced_tokens"],
+    )
+    enc_s2, dec_s2 = load_enc_dec_from_ae_ckpt(
+        device=device,
+        ckpt_path=str(s2_ckpt),
+        channels=s2_cfg["channels"],
+        dbottleneck=s2_cfg["dbottleneck"],
+        num_reduced_tokens=s2_cfg["num_reduced_tokens"],
+    )
+
+    model = FusedS1S2(
+        enc_s1=enc_s1,
+        dec_s1=dec_s1,
+        enc_s2=enc_s2,
+        dec_s2=dec_s2,
+        dbottleneck_s1=s1_cfg["dbottleneck"],
+        dbottleneck_s2=s2_cfg["dbottleneck"],
+        dbottleneck=7,
+        freeze_encoders=False,
+    )
+    checkpoint = torch.load(fusion_ckpt, map_location=device)
+    model.load_state_dict(checkpoint["state_dict"])
+    model.to(device)
+    model.eval()
+    return model, fusion_ckpt
+
+
+def evaluate_modality(model: TransformerAE, loader: DataLoader, device: torch.device) -> float:
+    total_metric = 0.0
+    total_samples = 0
+
+    with torch.no_grad():
+        for batch in tqdm(loader, desc="Validating modality", leave=False):
+            x, time_gaps, mask = batch
+            x = x.to(device)
+            time_gaps = time_gaps.to(device)
+            mask = mask.to(device)
+
+            recon, _ = model(x, time_gaps=time_gaps)
+            _, _, _, _, metric = model.loss_fn(recon, x, mask, val=True)
+
+            batch_size = x.size(0)
+            total_metric += metric.item() * batch_size
+            total_samples += batch_size
+
+    return total_metric / total_samples
+
+
+def evaluate_fusion(model: FusedS1S2, loader: DataLoader, device: torch.device) -> float:
+    total_metric = 0.0
+    total_samples = 0
+
+    with torch.no_grad():
+        for batch in tqdm(loader, desc="Validating fusion", leave=False):
+            x, mask, gaps_s1, gaps_s2, gaps_c = batch
+            x = x.to(device)
+            mask = mask.to(device)
+            gaps_s1 = gaps_s1.to(device)
+            gaps_s2 = gaps_s2.to(device)
+            gaps_c = gaps_c.to(device)
+
+            x_s2 = x[:, :, :10, :, :]
+            x_s1 = x[:, :, 10:, :, :]
+            mask_s2 = mask[:, :, :10, :, :]
+            mask_s1 = mask[:, :, 10:, :, :]
+
+            y_s1, y_s2, _ = model((x_s1, x_s2, gaps_s1, gaps_s2, gaps_c))
+            _, _, _, _, center_s1 = model.loss_fn_s1(y_s1, x_s1, mask_s1, val=True)
+            _, _, _, _, center_s2 = model.loss_fn_s2(y_s2, x_s2, mask_s2, val=True)
+            metric = (center_s1 + center_s2) / 2.0
+
+            batch_size = x.size(0)
+            total_metric += metric.item() * batch_size
+            total_samples += batch_size
+
+    return total_metric / total_samples
+
+
+def main() -> None:
+    if MODE not in TEST_DATASETS:
+        raise ValueError(f"Unknown MODE: {MODE}")
+
+    device = torch.device(f"cuda:{DEVICE_ID}" if torch.cuda.is_available() else "cpu")
+    dataset_path = TEST_DATASETS[MODE]
+
+    if MODE == "fusion":
+        model, ckpt_path = load_fusion_model(device)
+        dataset = HDF5Dataset(str(dataset_path), s1_s2=True)
     else:
-        with open("./all_ranges_no_clouds_rel.pkl", "rb") as f:
-            min_max_dict = pickle.load(f)
+        model, ckpt_path = load_modality_model(MODE, device)
+        dataset = HDF5Dataset(str(dataset_path))
 
-    # Create normalization tensors (assumes feature order is preserved)
-    min_vals = torch.tensor([v[0] for v in min_max_dict.values()], device=x.device).view(1, 1, -1, 1, 1)
-    max_vals = torch.tensor([v[1] for v in min_max_dict.values()], device=x.device).view(1, 1, -1, 1, 1)
+    loader = DataLoader(
+        dataset,
+        batch_size=BATCH_SIZE,
+        shuffle=False,
+        num_workers=NUM_WORKERS,
+    )
 
-    # Unnormalize both input and reconstruction (log-space)
-    x = x * (max_vals - min_vals) + min_vals
-    recon = recon * (max_vals - min_vals) + min_vals
+    if MODE == "fusion":
+        metric = evaluate_fusion(model, loader, device)
+    else:
+        metric = evaluate_modality(model, loader, device)
 
-    # === Step 2: Undo log transform ===
-    if log:
-        x = torch.exp(x) - epsilon
-        recon = torch.exp(recon) - epsilon
-
-
-    return x, recon
-
-def center_mae(x, recon):
-    # Select central coordinate only: day=5, x=y=7
-    x_center = x[:, 5, :, 7, 7]  # shape: [B, C]
-    recon_center = recon[:, 5, :, 7, 7]  # shape: [B, C]
-
-    # Compute MAE only on valid (masked) elements
-    mae_per_element = torch.abs(recon_center - x_center)
-    return mae_per_element.mean()
+    print(f"Mode: {MODE}")
+    print(f"Dataset: {dataset_path}")
+    print(f"Checkpoint: {ckpt_path}")
+    print(f"Validation metric: {metric:.6f}")
 
 
-# === SETTINGS ===
-device = torch.device("cuda:3" if torch.cuda.is_available() else "cpu")
-checkpoint_dir = "/scratch/jpeters/DeepFeatures/checkpoints/149_002_018_080"
-#checkpoint_dir = "/scratch/jpeters/DeepFeatures/checkpoints/149_002_018_080_log"
-batch_size = 24
-
-# === Load Test Dataset ===
-test_dataset = HDF5Dataset("./dataset/test_149.h5")
-#test_dataset = HDF5Dataset("/net/data_ssd/deepfeatures/log_test_149.h5")
-test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=8)
-
-# === Match checkpoint filenames ===
-pattern = re.compile(r"ae-7-epoch=(\d+)-val_loss=([0-9.]+e[+-]?\d+)\.ckpt")
-
-# === Track Results ===
-results = []
-
-# === Iterate and Evaluate Checkpoints ===
-for fname in os.listdir(checkpoint_dir):
-    match = pattern.match(fname)
-    if match:
-        epoch = int(match.group(1))
-        if 171 <= epoch <= 171:
-            path = os.path.join(checkpoint_dir, fname)
-
-            # Load model
-            model = TransformerAE(dbottleneck=7)
-            checkpoint = torch.load(path, map_location=device)
-            model.load_state_dict(checkpoint['state_dict'])
-            model.to(device)
-            model.eval()
-
-            # Evaluate on test set using MAE
-            total_loss = 0
-            count = 0
-            with torch.no_grad():
-                for batch in tqdm(test_loader, desc=f"Evaluating {fname}", leave=False):
-                    x, time_gaps, mask = batch
-                    x = x.to(device)
-                    time_gaps = time_gaps.to(device)
-                    mask = mask.to(device)
-                    recon, _ = model(x, time_gaps=time_gaps)
-
-                    x, recon = reverse_transformation(x, recon)
-
-                    #total_loss, mse_loss, ssim_loss, sam_loss, loss = model.loss_fn(recon, x, mask, val=True)  # total MAE
-                    #_, _, _, _, loss = model.loss_fn(recon, x, mask, val=True)  # total MAE
-                    loss = center_mae(x, recon)
-
-                    num_elements = mask.sum().item()  # or x.numel() if unmasked
-
-                    total_loss += loss.item() * num_elements  # Scale the mean loss back to total error
-                    count += num_elements  # Correctly count contributing elements
-
-            mae = total_loss / count
-            results.append((fname, mae))
-            print(f"{fname} → Test MAE: {mae:.6f}")
-
-# === Report Best ===
-best_ckpt, best_mae = min(results, key=lambda x: x[1])
-print(f"\n✅ Best checkpoint on test set: {best_ckpt} with MAE: {best_mae:.6f}")
+if __name__ == "__main__":
+    main()
