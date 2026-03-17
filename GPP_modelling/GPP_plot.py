@@ -21,7 +21,7 @@ from sites import sites_dict
 # ------------------------
 # User config (7-feature model ONLY)
 # ------------------------
-CKPT_PATH_7 = "/scratch/jpeters/DeepFeatures/use_cases/grid_logs_7_2/bs12_dm96_h4_L4_ff1024_do0p05_last_lr0p0001_wd1e-06_wu400_rp7_rf0p1/checkpoints/best-epoch=41-val_loss=0.5369.ckpt"
+CKPT_PATH_7 = "/scratch/jpeters/CA_MM_Embeddings/GPP_modelling/grid_logs_linear_noRad_2017-2019_to_2020/bs6_dm96_h8_L3_ff1024_do0p05_last_lr0p0001_wd1e-06_wu300_rp7_rf0p1/checkpoints/best-epoch=55-val_loss=0.4103.ckpt"
 
 ROOT_DIR = Path("/net/data/Fluxnet/")
 IN_DIR   = Path("/net/data_ssd/deepfeatures/sciencecubes_processed")
@@ -30,7 +30,17 @@ OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 CUBE_IDS = [ "003", "027", "022" ]
 
-VAR_NAME = "feature_mean_ucm"
+FEATURE_SOURCE = "linear"
+FEATURE_SOURCE_CONFIG = {
+    "ucm_flux": {
+        "path_template": "s1_s2_{cid}_v_mean_ucm_flux.zarr",
+        "var_name": "feature_mean_ucm",
+    },
+    "linear": {
+        "path_template": "s1_s2_{cid}_v_mean_linear.zarr",
+        "var_name": "feature_mean_linear",
+    },
+}
 
 TRAIN_YEARS = {2017, 2018, 2019}
 VAL_YEARS   = {2020}
@@ -75,32 +85,24 @@ def detect_flux_years_for_site(site: str, root: Path) -> Set[int]:
             if _site_in_filename(site, p.name):
                 years.update({2017, 2018, 2019, 2020})
                 break
-    for dpat in ["ICOS_2021_I", "ICOS_2022_I", "ICOS_2023_I", "ICOS_2024_I"]:
-        d = root / dpat
-        if not d.exists():
-            continue
-        try:
-            y = int(dpat.split("_")[1])
-        except Exception:
-            continue
-        for p in d.glob("ICOSETC_*_FLUXNET_DD_01.csv"):
-            if _site_in_filename(site, p.name):
-                years.add(y)
-                break
-    return {y for y in years if 2017 <= y <= 2024}
+    return {y for y in years if 2017 <= y <= 2020}
 
 def _safe(da: xr.DataArray) -> xr.DataArray:
     return xr.where(np.isfinite(da), da, np.nan)
 
 def _open_cube_da(cid: str) -> Tuple[xr.DataArray, Optional[int]]:
-    z = IN_DIR / f"s1_s2_{cid}_v_mean_ucm_flux.zarr"
+    if FEATURE_SOURCE not in FEATURE_SOURCE_CONFIG:
+        raise ValueError(f"Unknown FEATURE_SOURCE: {FEATURE_SOURCE}")
+    cfg = FEATURE_SOURCE_CONFIG[FEATURE_SOURCE]
+    z = IN_DIR / cfg["path_template"].format(cid=cid)
     if not z.exists():
         raise FileNotFoundError(z)
     ds = xr.open_zarr(z, consolidated=True)
-    if VAR_NAME not in ds:
-        raise KeyError(f"{VAR_NAME} not in {z}")
-    da = _safe(ds[VAR_NAME]).sortby("time")  # (feature, time)
-    ridx = ds[VAR_NAME].attrs.get("radiation_feature_index", None)
+    var_name = cfg["var_name"]
+    if var_name not in ds:
+        raise KeyError(f"{var_name} not in {z}")
+    da = _safe(ds[var_name]).sortby("time")  # (feature, time)
+    ridx = ds[var_name].attrs.get("radiation_feature_index", None)
     return da, int(ridx) if ridx is not None else None
 
 def _parse_date_col(df: pd.DataFrame) -> pd.Series:
@@ -132,14 +134,6 @@ def _load_fluxnet_daily_gpp(site: str, qc_thresh: float = QC_THRESH) -> pd.Serie
     if not files:
         raise FileNotFoundError(f"No FLUXNET DD files for site {site}")
 
-    def _priority(p: Path) -> tuple:
-        if "ICOSETC_" in p.name:
-            m = re.search(r"ICOS_(\d{4})_I", str(p.parent))
-            yr = int(m.group(1)) if m else 0
-            return (0, -yr)
-        return (1, 0)
-
-    files.sort(key=_priority)
     parts: List[pd.Series] = []
 
     for f in files:
