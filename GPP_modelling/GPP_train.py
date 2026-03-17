@@ -20,8 +20,6 @@ from model import GPPTemporalTransformer
 SEED = 42
 DEVICE_ID = 2                 # cuda device index, e.g. 0/1/2/3
 MAX_EPOCHS = 150
-RESULTS_CSV = "grid_results_7_2.csv"
-LOG_DIR = "grid_logs_7_2"
 MAX_TRIALS = 180
 # ------------------------------------------------------------------
 # Reproducibility + performance
@@ -42,17 +40,66 @@ torch.set_float32_matmul_precision('high')  # RTX A6000 Tensor Cores optimizatio
 
 BASE = "/net/data_ssd/deepfeatures/sciencecubes_processed"
 
-TRAIN_NPZ  = f"{BASE}/gpp_90day_samples_stride10_overlap80_qc70.0_years2017-2019_rad_gppstd_train.npz"
-TRAIN_META = f"{BASE}/gpp_90day_samples_meta_stride10_overlap80_qc70.0_years2017-2019_rad_train.csv"
-VAL_NPZ    = f"{BASE}/gpp_90day_samples_stride10_overlap80_qc70.0_years2020_rad_gppstd_val.npz"
-VAL_META   = f"{BASE}/gpp_90day_samples_meta_stride10_overlap80_qc70.0_years2020_rad_val.csv"
+WINDOW = 90
+OVERLAP = 80
+STRIDE = WINDOW - OVERLAP
+QC_THRESH = 70.0
+TRAIN_YEARS = "2017-2019"
+VAL_YEARS = "2020"
+FEATURE_SOURCE = "linear"
+RADIATION_MODE = "noRad"
+
+FEATURE_SOURCE_TAGS = {
+    "linear": "linear",
+    "ucm_flux": "ucm_flux",
+}
+RADIATION_MODE_TAGS = {
+    "include": "rad",
+    "exclude": "noRad",
+    "rad": "rad",
+    "noRad": "noRad",
+}
+
+
+def build_dataset_paths(base: str):
+    if FEATURE_SOURCE not in FEATURE_SOURCE_TAGS:
+        raise ValueError(f"Unknown FEATURE_SOURCE: {FEATURE_SOURCE}")
+    if RADIATION_MODE not in RADIATION_MODE_TAGS:
+        raise ValueError(f"Unknown RADIATION_MODE: {RADIATION_MODE}")
+
+    source_tag = FEATURE_SOURCE_TAGS[FEATURE_SOURCE]
+    rad_tag = RADIATION_MODE_TAGS[RADIATION_MODE]
+
+    train_npz = (
+        f"{base}/gpp_{WINDOW}day_samples_stride{STRIDE}_overlap{OVERLAP}_qc{QC_THRESH}"
+        f"_years{TRAIN_YEARS}_{source_tag}_{rad_tag}_gppstd_train.npz"
+    )
+    train_meta = (
+        f"{base}/gpp_{WINDOW}day_samples_meta_stride{STRIDE}_overlap{OVERLAP}_qc{QC_THRESH}"
+        f"_years{TRAIN_YEARS}_{source_tag}_{rad_tag}_train.csv"
+    )
+    val_npz = (
+        f"{base}/gpp_{WINDOW}day_samples_stride{STRIDE}_overlap{OVERLAP}_qc{QC_THRESH}"
+        f"_years{VAL_YEARS}_{source_tag}_{rad_tag}_gppstd_val.npz"
+    )
+    val_meta = (
+        f"{base}/gpp_{WINDOW}day_samples_meta_stride{STRIDE}_overlap{OVERLAP}_qc{QC_THRESH}"
+        f"_years{VAL_YEARS}_{source_tag}_{rad_tag}_val.csv"
+    )
+    return train_npz, train_meta, val_npz, val_meta
+
+
+TRAIN_NPZ, TRAIN_META, VAL_NPZ, VAL_META = build_dataset_paths(BASE)
+RUN_TAG = f"{FEATURE_SOURCE}_{RADIATION_MODE}_{TRAIN_YEARS}_to_{VAL_YEARS}"
+RESULTS_CSV = f"grid_results_{RUN_TAG}.csv"
+LOG_DIR = f"grid_logs_2_{RUN_TAG}"
 
 
 SPACE  = {
-        "num_features":  [8],
+        "num_features":  [7],
         "batch_size":    [6, 12],          # <- you asked for these
         "d_model":       [96],
-        "nhead":         [4, 16],          # filtered to divide d_model
+        "nhead":         [4, 8, 16],          # filtered to divide d_model
         "num_layers":    [3, 4],
         "dim_ff":        [1024],
         "dropout":       [0.05],
