@@ -25,12 +25,12 @@ MAX_EPOCHS = 500
 
 TRAIN_H5 = ROOT / "train_s1_s2.h5"
 VAL_H5 = ROOT / "val_s1_s2.h5"
-CHECKPOINT_DIR = ROOT / "checkpoints" / "fusion" / "s1_s2"
+CHECKPOINT_DIR = ROOT / "checkpoints" / "fusion"
 
 DBOTTLENECK_FUSION = 7
 MODALITY_CKPT_DIRS = {
-    "s1": ROOT / "checkpoints" / "modality" / "s1",
-    "s2": ROOT / "checkpoints" / "modality" / "s2",
+    "s1": ROOT / "checkpoints" / "s1",
+    "s2": ROOT / "checkpoints" / "s2",
 }
 CKPT_PATTERN = re.compile(r"val_loss=([0-9.]+e[+-]?\d+)")
 

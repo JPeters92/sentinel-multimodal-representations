@@ -18,7 +18,7 @@ Default CLI settings:
 - `--base-path /net/data/deepfeatures/trainingcubes`                # Input directory of the Sentinel-2 base cubes
 - `--merged-path /net/data_ssd/deepfeatures/s1_s2_cubes`            # Cache directory for merged Sentinel-1/2 cubes
 - `--output-path /net/data_ssd/deepfeatures/sciencecubes_processed` # Output directory for the final feature cubes
-- `--checkpoint-path ../checkpoints/fusion/s1_s2/fuse_model.ckpt`   # Fusion checkpoint used for feature extraction
+- `--checkpoint-path ../checkpoints/fusion/fuse_model.ckpt`   # Fusion checkpoint used for feature extraction
 - `--processes 6`                                                   # Worker processes for patch preprocessing
 - `--split-count 1`                                                 # Total number of processing splits
 - `--split-index 0`                                                 # Index of the current split to execute

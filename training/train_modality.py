@@ -50,7 +50,7 @@ def set_seed(seed: int) -> None:
 def build_paths(modality: str) -> tuple[Path, Path, Path]:
     train_h5 = ROOT / f"train_{modality}.h5"
     val_h5 = ROOT / f"val_{modality}.h5"
-    ckpt_dir = ROOT / "checkpoints" / "modality" / modality
+    ckpt_dir = ROOT / "checkpoints" / modality
     return train_h5, val_h5, ckpt_dir
 
 

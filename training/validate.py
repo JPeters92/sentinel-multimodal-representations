@@ -22,12 +22,11 @@ BATCH_SIZE = 24
 NUM_WORKERS = 8
 
 MODALITY_CKPT_DIRS = {
-    "s1": ROOT / "checkpoints" / "modality" / "s1",
-    "s2": ROOT / "checkpoints" / "modality" / "s2",
+    "s1": ROOT / "checkpoints" / "s1",
+    "s2": ROOT / "checkpoints" / "s2",
 }
 FUSION_CKPT_CANDIDATES = [
-    ROOT / "checkpoints" / "fusion" / "s1_s2" / "fuse_model.ckpt",
-    ROOT / "checkpoints" / "fuse_model.ckpt",
+    ROOT / "checkpoints" / "fusion" / "fuse_model.ckpt",
 ]
 CKPT_PATTERN = re.compile(r"val_loss=([0-9.]+e[+-]?\d+)")
 

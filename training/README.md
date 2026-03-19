@@ -24,8 +24,8 @@ Inputs:
 - `train_s2.h5` / `val_s2.h5`
 
 Outputs:
-- checkpoints in `checkpoints/modality/s1/`
-- checkpoints in `checkpoints/modality/s2/`
+- checkpoints in `checkpoints/s1/`
+- checkpoints in `checkpoints/s2/`
 
 ### 2. Fusion training
 
@@ -36,10 +36,10 @@ This script trains the shared fusion model with [`FusedS1S2`](../model/model_fus
 Inputs:
 - `train_s1_s2.h5`
 - `val_s1_s2.h5`
-- best checkpoints from `checkpoints/modality/s1/` and `checkpoints/modality/s2/`
+- best checkpoints from `checkpoints/s1/` and `checkpoints/s2/`
 
 Outputs:
-- best fusion checkpoint in `checkpoints/fusion/s1_s2/fuse_model.ckpt`
+- best fusion checkpoint in `checkpoints/fusion/fuse_model.ckpt`
 
 ### 3. Checkpoint validation
 
