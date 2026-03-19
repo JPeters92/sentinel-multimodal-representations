@@ -522,12 +522,12 @@ def process_cube(cube_num, model, device):
     eps = 1e-6
 
     logger.info("Processing cube %s", cube_num)
-    merged_path = os.path.join(MERGED_PATH, f"s1_s2_{cube_num}_v.zarr")
+    merged_path = os.path.join(MERGED_PATH, f"s1_s2_{cube_num}.zarr")
     ds = merge_s1_s2(cube_num, base_path=BASE_PATH, save_path=merged_path)
 
     matched_s1_times = ds["s1_time"].values
     feature_names = ["F01", "F02", "F03", "F04", "F05", "F06", "F07"]
-    output_path = os.path.join(OUTPUT_PATH, f"s1_s2_{cube_num}_v.zarr")
+    output_path = os.path.join(OUTPUT_PATH, f"s1_s2_{cube_num}.zarr")
 
     ds0, times_ok_ns, global_xs, global_ys, time_to_idx = init_output_from_source(ds, feature_names, output_path)
     logger.info("times_ok_ns count: %s", len(times_ok_ns))

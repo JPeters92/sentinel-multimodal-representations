@@ -16,7 +16,7 @@ from sklearn.preprocessing import StandardScaler
 selected_cubes = ["043","027","442","053","034","022","368","348","356","449","212","228"]
 
 s2_template   = "/net/data/deepfeatures/trainingcubes/000{cube}.zarr"
-feat_template = "/net/data_ssd/deepfeatures/trainingcubes_processed/s1_s2_000{cube}_v.zarr"
+feat_template = "/net/data_ssd/deepfeatures/trainingcubes_processed/s1_s2_000{cube}.zarr"
 
 # Output
 out_dir = "paper_vis"
@@ -173,7 +173,6 @@ with PdfPages(pdf_path) as pdf:
             y_above = min(bbox_s2.y1, bbox_pca.y1) + 0.008  # klein +, aber < 1.0 bleiben
             caption = f"{date_str} — lat={lat:.4f}, lon={lon:.4f}"
             fig.text(x_center, y_above, caption, ha="center", va="bottom", fontsize=7)
-
 
             idx += 1
 

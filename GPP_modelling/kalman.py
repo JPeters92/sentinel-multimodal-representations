@@ -326,8 +326,8 @@ CUBE_IDS = ['025', '026', '027',"028", '029', '030', '034', '035', '036', '038',
 
 for cid in CUBE_IDS:
     print(f"\n→ processing cube {cid}")
-    in_path  = IN_DIR / f"s1_s2_{cid}_v.zarr"
-    out_path = OUT_DIR / f"s1_s2_{cid}_v_mean_ucm_flux.zarr"
+    in_path  = IN_DIR / f"s1_s2_{cid}.zarr"
+    out_path = OUT_DIR / f"s1_s2_{cid}_mean_ucm_flux.zarr"
 
     ds = xr.open_zarr(in_path, consolidated=True)
     da = ds["features"]  # (feature, time, y, x)

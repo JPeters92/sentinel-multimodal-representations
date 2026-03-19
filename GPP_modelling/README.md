@@ -30,10 +30,10 @@ Use this first when deciding which `CUBE_IDS` to include in dataset generation.
 Choose one feature source:
 
 - [`linear.py`](linear.py)
-  Reads `s1_s2_<cid>_v.zarr`, computes spatial means, applies linear interpolation, and writes `s1_s2_<cid>_mean_linear.zarr`.
+  Reads `s1_s2_<cid>.zarr`, computes spatial means, applies linear interpolation, and writes `s1_s2_<cid>_mean_linear.zarr`.
 
 - [`kalman.py`](kalman.py)
-  Reads `s1_s2_<cid>_v.zarr`, computes spatial means, applies UCM-based gap filling, appends daily potential radiation, and writes `s1_s2_<cid>_v_mean_ucm_flux.zarr`.
+  Reads `s1_s2_<cid>.zarr`, computes spatial means, applies UCM-based gap filling, appends daily potential radiation, and writes `s1_s2_<cid>_mean_ucm_flux.zarr`.
 
 The prepared feature source is then consumed by [`dataset.py`](dataset.py).
 

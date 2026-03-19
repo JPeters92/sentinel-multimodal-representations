@@ -46,6 +46,10 @@ This is the main feature extraction script for the fused Sentinel-1/2 setup. It
 - computes latent features for the selected cube IDs,
 - and writes the resulting feature cubes to `.zarr`.
 
+Generated paths:
+- merged cache cubes are stored as `s1_s2_<cube_id>.zarr` under `--merged-path`
+- output feature cubes are stored as `s1_s2_<cube_id>.zarr` under `--output-path`
+
 
 
 ### 2. Cube verification
