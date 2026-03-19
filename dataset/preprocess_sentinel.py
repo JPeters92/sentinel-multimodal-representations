@@ -347,6 +347,18 @@ def extract_sentinel_patches(
 
     log = logging.getLogger(logger_name) if logger_name else None
 
+    def regularize_time_rows(time_array: np.ndarray, row_mask: np.ndarray) -> np.ndarray:
+        if not row_mask.any():
+            return time_array
+
+        fixed = time_array.copy()
+        center_idx = fixed.shape[1] // 2
+        offsets = np.arange(fixed.shape[1], dtype=np.int64) - center_idx
+        one_day_steps = offsets.astype("timedelta64[D]").astype("timedelta64[ns]")
+        centers = fixed[row_mask, center_idx].astype("datetime64[ns]")
+        fixed[row_mask] = centers[:, None] + one_day_steps[None, :]
+        return fixed
+
     def emit(message: str, *args, level: int = logging.DEBUG) -> None:
         if log is not None:
             log.log(level, message, *args)
@@ -493,7 +505,11 @@ def extract_sentinel_patches(
     if inference:
         bad_mask = ~gap_mask
         if bad_mask.any():
-            time_gaps[bad_mask] = torch.ones_like(time_gaps[bad_mask])
+            bad_mask_np = bad_mask.cpu().numpy()
+            selected_time_coords = regularize_time_rows(selected_time_coords, bad_mask_np)
+            coords["time"] = selected_time_coords
+            if "time_add" in coords:
+                coords["time_add"] = regularize_time_rows(coords["time_add"], bad_mask_np)
     else:
         removed = (~gap_mask).sum().item()
         if removed:
