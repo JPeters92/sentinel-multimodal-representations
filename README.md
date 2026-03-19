@@ -21,7 +21,7 @@ We recommend using Python 3.12 and CUDA 12.1.
 Clone the repository and create the conda environment:
 
 ```bash
-git clone git@github.com:Julia310/sentinel-spatiotemporal-representations.git
+git clone git@github.com:Julia310/sentinel-multimodal-representations.git
 cd sentinel-spatiotemporal-representations
 conda env create -f environment.yml
 conda activate emb-venv
