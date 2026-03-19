@@ -12,7 +12,7 @@ Purpose:
 - contains the encoder and decoder used for Sentinel-1, Sentinel-2, or other prepared band stacks
 - provides the Lightning training module for reconstruction-based pretraining
 
-<img src="./figures/ModalityEncoder.png" alt="Modality-specific autoencoder" width="350">
+<img src="./figures/ModalityEncoder.png" alt="Modality-specific autoencoder" width="450">
 
 ### 2. Fusion model
 
