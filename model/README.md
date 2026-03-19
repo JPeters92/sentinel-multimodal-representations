@@ -52,5 +52,5 @@ Purpose:
 - combines weighted MAE, SSIM, and SAM terms
 - supports spatial and temporal weighting
 
-<img src="./figures/context-aware.png" alt="Context-aware loss concept" width="150">
+<img src="./figures/context-aware.png" alt="Context-aware loss concept" width="300">
 
