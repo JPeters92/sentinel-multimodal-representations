@@ -17,11 +17,6 @@ except:
     from model_s1_s2 import TransformerAE
     from model_blocks import *
 
-# assumes you already have these:
-# - TemporalPositionalEmbedding
-# - WeightedMaskedLoss
-# - ModalityEncoder / ModalityDecoder (from previous step)
-
 
 def load_enc_dec_from_ae_ckpt(
     device: torch.device,
@@ -83,7 +78,6 @@ class FusedS1S2(pl.LightningModule):
         dim_ff: int = 256,
         max_position: int = 350,                      # for pair positions [0, Δt]
         learning_rate: float = 1e-4,
-        #learning_rate: float = 3.5e-5,
         freeze_encoders: bool = True,
         loss_fn_s1: nn.Module | None = None,
         loss_fn_s2: nn.Module | None = None,
@@ -104,23 +98,6 @@ class FusedS1S2(pl.LightningModule):
             for p in self.dec_s1.parameters(): p.requires_grad = False
             for p in self.enc_s2.parameters(): p.requires_grad = False
             for p in self.dec_s2.parameters(): p.requires_grad = False
-
-        # --- make sure DECODERS are trainable ---
-        #for p in self.enc_s1.parameters():
-        #    p.requires_grad = True
-        #for p in self.enc_s2.parameters():
-        #    p.requires_grad = True
-        #for p in self.dec_s1.parameters():
-        #    p.requires_grad = True
-        #for p in self.dec_s2.parameters():
-        #    p.requires_grad = True
-        #self.enc_s1.train()
-        #self.enc_s2.train()
-        #self.dec_s1.train()
-        #self.dec_s2.train()
-
-
-
 
         # project each modality bottleneck to common fusion dim
         self.proj_s1 = nn.Linear(dbottleneck_s1, d_fuse)
@@ -239,20 +216,14 @@ class FusedS1S2(pl.LightningModule):
         y_all = torch.cat([y_s2, y_s1], dim=2)
         x_all = torch.cat([x_s2, x_s1], dim=2)
 
-        #total, mae, ssim, sam, center = self.loss_fn(y_all, x_all, mask)
-
         # reconstruction losses (your WeightedMaskedLoss works on (pred, target, mask))
         total_s1, mae_s1, _, _, center_s1 = self.loss_fn_s1(y_s1, x_s1, mask_s1)
         total_s2, mae_s2, _, _, center_s2 = self.loss_fn_s2(y_s2, x_s2, mask_s2)
         total = 0.5 * total_s1 + 0.5 * total_s2 #+ 0.1 * total
-        #total = 0.5 * total_s1 + 0.5 * total_s2
 
         self.log_dict({
             "t_total": total,
             "t_s1_total": total_s1, "t_s2_total": total_s2,
-            #"train_s1_mae": mae_s1, "train_s2_mae": mae_s2,
-            #"train_s1_ssim": ssim_s1, "train_s2_ssim": ssim_s2,
-            #"train_s1_sam": sam_s1, "train_s2_sam": sam_s2,
             "t_s1_c": center_s1, "t_s2_c": center_s2,
         }, prog_bar=True,
             on_step=False,
@@ -278,18 +249,14 @@ class FusedS1S2(pl.LightningModule):
         y_all = torch.cat([y_s2, y_s1], dim=2)
         x_all = torch.cat([x_s2, x_s1], dim=2)
 
-        #total, mae, ssim, sam, center = self.loss_fn(y_all, x_all, mask)
-
-
         total_s1, mae_s1, ssim_s1, sam_s1, center_s1 = self.loss_fn_s1(y_s1, x_s1, mask_s1, val=True)
         total_s2, mae_s2, ssim_s2, sam_s2, center_s2 = self.loss_fn_s2(y_s2, x_s2, mask_s2, val=True)
-        val_center = (center_s1 + center_s2) / 2.  # monitor
+        val_center = (center_s1 + center_s2) / 2.
+
         self.log_dict({
             "l_total": total_s1 + total_s2,
-            #"val_s1_total": total_s1, "val_s2_total": total_s2,
             "v_s1_mae": mae_s1, "v_s2_mae": mae_s2,
             "v_ssim": ssim_s2,
-            #"val_s1_sam": sam_s1,
             "v_sam": sam_s2,
             "v_s1_c": center_s1, "v_s2_c": center_s2,
 
@@ -321,11 +288,9 @@ class FusedS1S2(pl.LightningModule):
         return total_s1 + total_s2
 
     def configure_optimizers(self):
-        #opt = optim.AdamW(self.parameters(), lr=self.learning_rate, weight_decay=5e-4)
         opt = optim.AdamW(self.parameters(), lr=self.learning_rate, weight_decay=1.5e-4)
 
         warmup = {
-            #"scheduler": LinearLR(opt, start_factor=0.0001, total_iters=35000),
             "scheduler": LinearLR(opt, start_factor=0.001, total_iters=30000),
 
             "interval": "step",
@@ -354,8 +319,8 @@ def main():
     dbottleneck_s1 = 2
     dbottleneck_s2 = 9
 
-    s2_ckpt = '../checkpoints/003_025_072_test/s2_3/ae-9-epoch=154-val_loss=3.686e-03.ckpt'
-    s1_ckpt = '../checkpoints/003_025_072_test/s1/ae-2-epoch=68-val_loss=6.832e-04.ckpt'
+    s2_ckpt = '../checkpoints//s2/ae-9-epoch=154-val_loss=3.686e-03.ckpt'
+    s1_ckpt = '../checkpoints//s1/ae-2-epoch=68-val_loss=6.832e-04.ckpt'
     device = torch.device("cuda:3" if torch.cuda.is_available() else "cpu")
 
     enc_s1, dec_s1 = load_enc_dec_from_ae_ckpt(
@@ -372,9 +337,6 @@ def main():
         dbottleneck=dbottleneck_s2,
         num_reduced_tokens=6
     )
-
-    print('====================')
-
 
     # Modell instanziieren
     model = FusedS1S2(
@@ -393,14 +355,6 @@ def main():
     mask_s1 = torch.ones_like(x_s1, dtype=torch.bool, device=device)
     mask_s2 = torch.ones_like(x_s2, dtype=torch.bool, device=device)
     pair_time_delta_days = torch.randint(0, 30, (batch_size, 1), device=device, dtype=torch.long)
-
-    print(x_s2.shape)
-    print(x_s1.shape)
-    print(gaps_s1.shape)
-    print(gaps_s2.shape)
-    print(mask_s1.shape)
-    print(mask_s2.shape)
-    print(pair_time_delta_days.shape)
 
     # Forward-Pass
     model.eval()
